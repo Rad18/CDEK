@@ -1,0 +1,667 @@
+
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Map</title>
+    <style>
+html {
+  font-size: 15px;
+  height: 100%;
+}
+
+body {
+  font-family: Helvetica, sans-serif;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+#userLocation {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-content: stretch;
+  align-items: stretch;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+#YMapsID {
+  width: 100%;
+  flex: 1;
+}
+
+.btn-group {
+  display: flex;
+  &_indent-b_l {
+    margin-bottom: 16px;
+  }
+
+  &__item {
+    display: inline-block;
+  }
+
+  &__item:not(first-child) {
+    margin-right: 16px;
+  }
+}
+
+.btn {
+  background: none;
+  padding: 16px;
+  position: relative;
+  outline: 0;
+  border: 0;
+
+  &:before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    bottom: 2px;
+    left: 2px;
+    content: "";
+    box-shadow: inset 0 0 0 0 #777, 0 0 0 1px #777;
+  }
+
+  &_selected {
+    &:before {
+      box-shadow: inset 0 0 0 0 #dd2d24, 0 0 0 2px #dd2d24;
+    }
+  }
+}
+
+.pt-form {
+  &__item {
+    position: relative;
+
+    &_indent-b_l {
+      margin-bottom: 16px;
+    }
+  }
+}
+
+.input {
+  touch-action: manipulation;
+  font-size: 18px;
+  line-height: 42px;
+  background-color: #f0f0f0;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0.16);
+  position: relative;
+  display: inline-block;
+  font-family: Helvetica, sans-serif;
+
+  &_focused {
+    &:before {
+      box-shadow: inset 0 0 0 0 #dd2d24, 0 0 0 2px #dd2d24;
+    }
+  }
+
+  &:before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    bottom: 2px;
+    left: 2px;
+    content: "";
+    background: #f0f0f0;
+  }
+
+  &_width_available {
+    width: 100%;
+  }
+
+  &__box {
+    position: relative;
+    display: block;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  &__control {
+    height: 42px;
+    padding: 0 12px;
+    font: inherit;
+    line-height: inherit;
+    position: relative;
+    display: inline-block;
+    box-sizing: border-box;
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: 0 0;
+    color: #000;
+    -webkit-appearance: none;
+  }
+}
+
+    </style>
+
+  </head>
+
+  <body class="home">
+
+
+  <div id="userLocation">
+    <div class="controls">
+      <div class="btn-group btn-group_indent-b_l">
+        <button class="btn-group__item btn btn_selected" data-bind="function(){$root.switchMapdata()}">Физические лица</button>
+        <button class="btn-group__item btn">Юридические лица</button>
+      </div>
+      <div class="pt-form">
+        <div class="pt-form__item pt-form__item_indent-b_l">
+          <span class="input input_width_available">
+            <span class="input__box">
+              <input class="input__control" type="text" placeholder="Введите адрес" id="suggest">
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div id="YMapsID"></div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.4.2/knockout-min.js"></script>
+  <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&amp;coordorder=latlong"></script>
+
+ 
+<script>
+/*eslint no-console: 0 */
+/*global ymaps*/
+/*global ko*/
+var inputs = document.querySelectorAll('.input');
+inputs.forEach(function(input){
+  input.addEventListener('focus', function() {
+    this.classList.add('input_focused');
+  }, true);
+  input.addEventListener('blur', function() {
+    this.classList.remove('input_focused');
+  }, true);
+});
+
+var buttons = document.querySelectorAll('.btn');
+buttons.forEach(function(button){
+  button.addEventListener('click', function() {
+    buttons.forEach(function(button){
+      button.classList.remove('btn_selected');
+    });
+    this.classList.add('btn_selected');
+  }, true);
+
+});
+
+var clientbaseinfo = {
+  'ClientId': 0,
+  'ClientName': null,
+  'CompanyId': 1,
+  'DeliveryAddress': '',
+  'StoreAddress': 'г. Санкт-Петербург, пр.Науки 23Б',
+  'IsSelfService': true,
+  'BasketCount': 0,
+  'SelfRouteId': 18,
+  'DeliveryRouteId': 0,
+  'SelectedRouteId': 18,
+  'DefaultCurrency': 'RUB',
+  'CityName': 'Санкт-Петербург',
+  'StoreId': 3,
+  'DeliveryAddressId': 0,
+  'StoreAddressId': 6605,
+  'PayBad': 0.0000,
+  'IsSeller': false,
+  'PriceLists': []
+};
+
+var objectManager;
+
+function WidgetViewModel(clientbaseinfo, data) {
+  var self = this;
+  //console.log('data', data);
+
+  self.activeMode = ko.observable();
+  self.objectManager = ko.observable(data);
+
+  self.initMap = function() {
+    ymaps.ready()
+      .done(function(ym) {
+        console.log('this', this);
+        var myMap = new ym.Map('YMapsID', {
+          center: [37.573856, 55.751574],
+          zoom: 4,
+          controls: []
+        });
+        objectManager = new ymaps.ObjectManager({
+          // Чтобы метки начали кластеризоваться, выставляем опцию.
+          clusterize: true,
+          // ObjectManager принимает те же опции, что и кластеризатор.
+          gridSize: 48,
+          clusterDisableClickZoom: false
+        });
+        // TODO: Попробовать разделить кластеризатор и поиск по сдек-точкам
+        objectManager.objects.options.set('preset', 'islands#greenDotIcon');
+        objectManager.clusters.options.set({
+          'preset': 'islands#greenClusterIcons',
+          'clusterIconColor': '#57A52C'
+        });
+        myMap.geoObjects.add(objectManager);
+
+        var routesCollection = new ymaps.GeoObjectCollection();
+        myMap.geoObjects.add(routesCollection);
+
+        // TODO: Разделить по вкладкам: ФИЗ/ЮР
+        /* CDEK POINTS */
+        getCdekPoints()
+          .then(
+            obj => {
+              objectManager = ymaps.geoQuery(obj);
+              var clusteredCdekPoints = objectManager.clusterize({
+                'clusterIconColor': '#57A52C'
+              });
+              myMap.geoObjects.add(clusteredCdekPoints);
+              return clusteredCdekPoints;
+            }
+          )
+          .then(pointsCollection => {
+            myMap.setBounds(pointsCollection.getBounds());
+          })
+          .catch(err => console.log(err));
+
+        /* AC Routes */
+        getACRoutes()
+          .then(
+            data => {
+              routesCollection = ymaps.geoQuery(data)
+                .addToMap(myMap);
+            }
+          )
+          .catch(err => console.log(err));
+
+        //myMap.geoObjects.add(new ymaps.GeoObjectCollection(cdekPoints))
+
+        var suggestView = new ymaps.SuggestView('suggest', {
+          results: 20
+        });
+        var searchGeoObject = {},
+          multiRoute = {};
+
+
+        suggestView.events.add('select', function() {
+          ymaps.suggest(suggestView.state.get('request'), {
+            results: 10
+          })
+            .then(function(items) {
+              return ymaps.geocode(items[0].value, {
+                results: 1
+              });
+            })
+            .then(function(res) {
+              if (Object.keys(searchGeoObject)) {
+                myMap.geoObjects.remove(searchGeoObject);
+              }
+              searchGeoObject = res.geoObjects.get(0);
+
+              //coords = searchGeoObject.geometry.getCoordinates(),
+              var bounds = searchGeoObject.properties.get('boundedBy');
+
+              searchGeoObject.options.set('preset', 'islands#darkBlueDotIconWithCaption');
+              searchGeoObject.properties.set('iconCaption', searchGeoObject.getAddressLine());
+
+              myMap.geoObjects.add(searchGeoObject);
+              myMap.setBounds(bounds, {
+                checkZoomRange: true
+              });
+
+              return searchGeoObject;
+            })
+            .then(
+              geoObject => {
+                console.log('here', geoObject);
+                console.log('search in objectManager', objectManager, objectManager.getParent());
+                console.log('objectManager.getClosestTo(geoObject)', objectManager.getClosestTo(geoObject));
+                var targetPoint = objectManager.getClosestTo(geoObject);
+                //targetPoint.balloon.open();
+
+                console.log('geoObject', geoObject, 'targetPoint', targetPoint.getParent());
+                return [geoObject, targetPoint];
+              }
+            )
+            .then(
+              arr => {
+                console.log('multirouter points', arr);
+                if (Object.keys(multiRoute)) {
+                  myMap.geoObjects.remove(multiRoute);
+                }
+                // TODO: Выставить 2 варианта маршрута (транспорт/авто)
+                // NOTE: MULTIROUTER
+                multiRoute = new ymaps.multiRouter.MultiRoute({
+                  referencePoints: arr,
+                  /*params: {
+                    routingMode: 'pedestrian'
+                  }*/
+                }, {
+                  boundsAutoApply: true,
+                  wayPointStartIconRadius: 1,
+                  wayPointStartIconLayout: 'default#image',
+                  wayPointStartIconImageSize: [0, 0],
+                  routeStrokeWidth: 2,
+                  routeStrokeColor: '#57A52C',
+                  routeActiveStrokeWidth: 6,
+                  routeActiveStrokeColor: '#57A52C',
+                  wayPointFinishIconLayout: 'default#image',
+                  wayPointFinishIconImageHref: '',
+                  wayPointFinishIconImageSize: [0, 0],
+                  wayPointFinishIconImageOffset: [-15, -15],
+                  wayPointFinishIconFillColor: '#57A52C',
+                });
+                myMap.geoObjects.add(multiRoute);
+              }
+            );
+        });
+      });
+  };
+
+  self.switchMapdata = function() {
+    return switchVisibleGeoObjects(self.activeMode(), self.objectManager());
+  };
+
+  self.initMap();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var userLocationVar = new WidgetViewModel(clientbaseinfo, objectManager);
+  ko.applyBindings(userLocationVar, document.getElementById('userLocation'));
+});
+
+
+
+/* КАРТЫ */
+
+/**
+ * Функция промисификации запроса
+ * @param url
+ * @returns {Promise}
+ */
+function httpGet(url) {
+
+  return new Promise(function(resolve, reject) {
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+
+    xhr.onload = function() {
+      if (this.status == 200) {
+        resolve(this.response);
+      } else {
+        var error = new Error(this.statusText);
+        error.code = this.status;
+        reject(error);
+      }
+    };
+
+    xhr.onerror = function() {
+      reject(new Error('Network Error'));
+    };
+
+    xhr.send();
+  });
+
+}
+
+function getCdekPoints() {
+  return httpGet('https://integration.cdek.ru/pvzlist.php')
+    .then(
+      response => response,
+      error => console.error(`Rejected: ${error}`)
+    )
+    .then(
+
+      xmlText => {
+        return new DOMParser()
+          .parseFromString(xmlText, 'application/xml');
+      }
+    )
+    .then(
+      xml => {
+        xml = xmlToJson(xml);
+        //var geoJsonObject = setCdekDataToGeoJson(xml.PvzList.Pvz);
+        return setCdekDataToGeoJson(xml.PvzList.Pvz);
+      }
+    )
+    .catch(
+      err => console.log(err)
+    );
+}
+
+function getACRoutes() {
+  return httpGet('http://autocode.ru/services/delivery/get-change-routes-list')
+    .then(
+      response => JSON.parse(response),
+      error => console.log(`Rejected: ${error}`)
+    )
+    .then(
+      json => {
+        var notNullRoutes = [];
+        json.forEach(function(el) {
+          if (el.MapArea !== null && el.MapArea.length > 5) {
+            notNullRoutes.push(el);
+          }
+        });
+        return notNullRoutes;
+      }
+    )
+    .then(
+      routes => setACDataToGeoJson(routes)
+    )
+    .catch(
+      err => console.log(err)
+    );
+}
+
+// TODO: Занести получение данных в один промис и не запрашивать новые данные
+
+
+/**
+ * Функция конвертер xml в json
+ * @param xml
+ * @returns {Object}
+ */
+function xmlToJson(xml) {
+  // Выходной объект
+  var obj = {};
+
+  if (xml.nodeType == 1) { // элемент
+    // атрибуты
+    if (xml.attributes.length > 0) {
+      obj['attributes'] = {};
+      for (var j = 0, aLength = xml.attributes.length; j < aLength; j++) {
+        var attribute = xml.attributes.item(j);
+        obj['attributes'][attribute.nodeName] = attribute.nodeValue;
+      }
+    }
+  } else if (xml.nodeType == 3) { // текст
+    obj = xml.nodeValue;
+  }
+
+  // вложенные элементы
+  // Только одна текстовая нода
+  if (xml.hasChildNodes() && xml.childNodes.length === 1 && xml.childNodes[0].nodeType === 3) {
+    obj = xml.childNodes[0].nodeValue;
+  } else if (xml.hasChildNodes()) {
+    for (var i = 0, xLength = xml.childNodes.length; i < xLength; i++) {
+      var item = xml.childNodes.item(i);
+      var nodeName = item.nodeName;
+      if (typeof(obj[nodeName]) === 'undefined') {
+        obj[nodeName] = xmlToJson(item);
+      } else {
+        if (typeof(obj[nodeName].push) === 'undefined') {
+          var old = obj[nodeName];
+          obj[nodeName] = [];
+          obj[nodeName].push(old);
+        }
+        obj[nodeName].push(xmlToJson(item));
+      }
+    }
+  }
+  return obj;
+}
+
+// NOTE: AC GEO
+function setACDataToGeoJson(arr) {
+  var geoDataObject = {
+    'type': 'FeatureCollection',
+    'features': []
+  };
+
+  arr.forEach(function(el) {
+    //console.log(el)
+    var {
+      MapArea,
+      Id,
+      Name,
+      Description,
+      Color
+    } = el;
+
+    var objectData = {
+      'type': 'Feature',
+      'id': Id,
+      'geometry': {
+        'type': 'Polygon',
+        'coordinates': JSON.parse(MapArea)
+      },
+      'options': {
+        'fillColor': Color === null ? '#2d24dd' : Color,
+        'fillOpacity': 0,
+        'strokeWidth': 0
+      },
+      'properties': {
+        'hintContent': `${Name} ${Description}`
+      }
+    };
+
+
+    if (Id > 0) {
+      geoDataObject.features.push(objectData);
+    }
+  });
+
+  return geoDataObject;
+}
+
+
+// NOTE: CDEK GEO
+function setCdekDataToGeoJson(arr) {
+  var geoDataObject = {
+    'type': 'FeatureCollection',
+    'features': []
+  };
+
+  geoDataObject.features = arr.map(function(el, i) {
+    var {
+      coordX,
+      coordY,
+      Address,
+      AddressComment,
+      City,
+      CityCode,
+      CountryName,
+      FullAddress,
+      Name,
+      Phone,
+      Email,
+      WorkTime,
+      ownerCode
+    } = el.attributes;
+
+    var phones = decoratePhones(Phone);
+
+    var itemContents = '<div class="description">' + '<br><small>'  + coordY + ', ' + coordX + '</small><br>' +
+      '<b>Адрес пункта выдачи заказов:</b> ' + FullAddress + '<br>';
+
+    if (AddressComment) {
+      itemContents += '<b>Как добраться:</b> ' + AddressComment + '<br><br>';
+    }
+
+    itemContents += '<b>Время работы:</b> ' + WorkTime + '<br><br>' +
+      '<b>Тел.:</b> ' + phones + '<br>' + '<br>';
+
+    if (Email) {
+      itemContents += '<b>Эл.почта:</b> <a class="description__link" href="mailto:' + Email + '">' + Email + '</a><br><br>';
+    }
+
+    itemContents += '</div>';
+
+    return {
+      'type': 'Feature',
+      'id': i,
+      'geometry': {
+        'type': 'Point',
+        'coordinates': [+coordY, +coordX]
+      },
+      'options': {
+        'iconLayout': 'default#image',
+        'iconImageHref': './img/logo-cdek.svg',
+        'iconImageSize': [30, 30],
+        'iconImageOffset': [-15, -15]
+      },
+      'properties': {
+        'address': Address,
+        'countryName': CountryName,
+        'city': City,
+        'cityCode': CityCode,
+        'phone': Phone,
+        'email': Email,
+        'worktime': WorkTime,
+        'fullAddress': FullAddress,
+        'name': Name,
+        'balloonContentHeader': ownerCode.toUpperCase() + ' ' + Name,
+        'balloonContent': itemContents
+      }
+    };
+  });
+  return geoDataObject;
+}
+
+
+
+/*function checkRoute(obj, key) {
+  var targetZone = deliveryZones.searchContaining(obj)
+    .get(0) || ''
+
+  var value = ''
+  if (targetZone !== '') {
+    value = targetZone.properties.get(key)
+    obj.options.set('iconColor', targetZone.options.get('fillColor'))
+  } else {
+    console.log('Вне маршрутов')
+  }
+  return value
+}*/
+
+
+function decoratePhones(str) {
+  var res = str.split(', ')
+    .map(function(item) {
+      return '<a class="description__link" href="tel:' + item + '">' + item + '</a>';
+    })
+    .join(', ');
+
+  return res;
+}
+
+function switchVisibleGeoObjects(type, collection) {
+  console.log(collection);
+  return collection;
+}
+
+</script>
+
+
+
+
+    
+
+  </body>
+</html>
